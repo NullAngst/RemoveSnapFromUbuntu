@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
-#
 set -euo pipefail
 
 SCRIPT_NAME=${0##*/}
-
-# ── Options ──────────────────────────────────────────────────────────────────
 
 ASSUME_YES=0
 DRY_RUN=0
@@ -57,8 +54,6 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
-# ── Output helpers ───────────────────────────────────────────────────────────
-
 if [[ -t 2 ]]; then
     C_INFO=$'\e[1;34m'; C_OK=$'\e[1;32m'; C_WARN=$'\e[1;33m'
     C_ERR=$'\e[1;31m';  C_OFF=$'\e[0m'
@@ -79,7 +74,6 @@ on_err() {
 }
 trap 'on_err $LINENO' ERR
 
-# run <cmd...> honours --dry-run
 run() {
     if (( DRY_RUN )); then
         printf '  would run: %s\n' "$*" >&2
@@ -88,8 +82,6 @@ run() {
     fi
 }
 
-# ── Pre-flight ───────────────────────────────────────────────────────────────
-
 if [[ $EUID -ne 0 ]]; then
     err "This script must be run as root."
     err "Usage: sudo bash $SCRIPT_NAME"
@@ -97,7 +89,6 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 if [[ -r /etc/os-release ]]; then
-    # shellcheck disable=SC1091
     . /etc/os-release
     if [[ ${ID:-} != ubuntu && ${ID_LIKE:-} != *ubuntu* ]]; then
         warn "This system reports ID=${ID:-unknown}, not Ubuntu."
@@ -144,8 +135,6 @@ snap_mounts_present() {
     awk '$2 ~ "^/(var/)?snap(/|$)" {found = 1} END {exit !found}' /proc/self/mounts
 }
 
-# ── Step 1: Refresh package lists ────────────────────────────────────────────
-
 info "Refreshing package lists..."
 run apt-get update
 if (( DO_UPGRADE )); then
@@ -153,8 +142,6 @@ if (( DO_UPGRADE )); then
     run apt-get full-upgrade -y
 fi
 success "Package lists ready."
-
-# ── Step 2: Remove every installed snap ──────────────────────────────────────
 
 is_base_snap() {
     case "$1" in
@@ -213,8 +200,6 @@ else
     info "snap command not present; nothing to remove."
 fi
 
-# ── Step 3: Stop snapd units ─────────────────────────────────────────────────
-
 info "Stopping and disabling snapd units..."
 mapfile -t snapd_units < <(
     systemctl list-unit-files --no-legend --no-pager 'snapd*' 2>/dev/null | awk '{print $1}'
@@ -223,13 +208,10 @@ for unit in "${snapd_units[@]}"; do
     run systemctl stop "$unit"    >/dev/null 2>&1 || true
     run systemctl disable "$unit" >/dev/null 2>&1 || true
 done
-# Mask the entry points so a future reinstall cannot silently start them.
 for unit in snapd.service snapd.socket; do
     run systemctl mask "$unit" >/dev/null 2>&1 || true
 done
 success "snapd units stopped, disabled and masked."
-
-# ── Step 4: Purge the snapd package ──────────────────────────────────────────
 
 if pkg_installed snapd; then
     info "Purging snapd..."
@@ -239,8 +221,6 @@ if pkg_installed snapd; then
 else
     info "snapd package is not installed; nothing to purge."
 fi
-
-# ── Step 5: Unmount leftovers, then delete snap data ─────────────────────────
 
 info "Unmounting any remaining snap mounts..."
 while read -r mountpoint; do
@@ -264,17 +244,13 @@ else
     info "Removing snap data directories..."
     run rm -rf /var/lib/snapd /var/cache/snapd /var/snap /snap
 
-    # Per-user data, resolved from passwd instead of assuming a /home layout.
     while IFS=: read -r _ _ uid _ _ home _; do
         [[ -n $home && $home != / && -d $home ]] || continue
         (( uid == 0 || uid >= 1000 )) || continue
         run rm -rf -- "$home/snap" "$home/.snap"
     done < <(getent passwd)
-
     success "Snap data removed."
 fi
-
-# ── Step 6: Block snapd from coming back ─────────────────────────────────────
 
 info "Blocking snapd reinstallation..."
 run apt-mark hold snapd
@@ -293,8 +269,6 @@ EOF
     chmod 0644 /etc/apt/preferences.d/no-snapd.pref
 fi
 success "snapd is held and pinned to -10."
-
-# ── Step 7: Install Flatpak ──────────────────────────────────────────────────
 
 info "Installing Flatpak..."
 run apt-get install -y flatpak
@@ -341,8 +315,6 @@ if (( INSTALL_STARTER_APPS )); then
     done
     success "Starter apps done."
 fi
-
-# ── Step 8: Cleanup ──────────────────────────────────────────────────────────
 
 info "Running apt cleanup..."
 run apt-get autoremove -y
