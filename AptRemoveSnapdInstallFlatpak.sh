@@ -1,11 +1,5 @@
 #!/usr/bin/env bash
 #
-# AptRemoveSnapdInstallFlatpak.sh
-# Removes snapd and every installed snap, blocks snapd from returning,
-# and installs Flatpak with the Flathub remote.
-#
-# Made with love by NullAngst.
-
 set -euo pipefail
 
 SCRIPT_NAME=${0##*/}
