@@ -1,24 +1,12 @@
 #!/usr/bin/env bash
-#
-# DisableUbuntuMetrics.sh
-# Removes and blocks Ubuntu's crash reporting and metrics packages:
-#   apport, whoopsie, ubuntu-report / ubuntu-insights, popularity-contest
-#
-# Made with love by NullAngst.
-
 set -euo pipefail
 
 SCRIPT_NAME=${0##*/}
-
-# ── Options ──────────────────────────────────────────────────────────────────
 
 ASSUME_YES=0
 DRY_RUN=0
 KEEP_APPORT=0
 
-# Packages removed and pinned. apport-gtk / apport-symptoms and
-# whoopsie-preferences depend on apport / whoopsie, so they have to go too or
-# the negative pin leaves apt with unsatisfiable dependencies.
 TELEMETRY_PACKAGES=(
     whoopsie
     whoopsie-preferences
@@ -69,8 +57,6 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
-# ── Output helpers ───────────────────────────────────────────────────────────
-
 if [[ -t 2 ]]; then
     C_INFO=$'\e[1;34m'; C_OK=$'\e[1;32m'; C_WARN=$'\e[1;33m'
     C_ERR=$'\e[1;31m';  C_OFF=$'\e[0m'
@@ -99,7 +85,6 @@ run() {
     fi
 }
 
-# write_file <path> <mode> then content on stdin
 write_file() {
     local path="$1" mode="$2" content
     content=$(cat)
@@ -113,8 +98,6 @@ write_file() {
     chmod "$mode" "$path"
 }
 
-# ── Pre-flight ───────────────────────────────────────────────────────────────
-
 if [[ $EUID -ne 0 ]]; then
     err "This script must be run as root."
     err "Usage: sudo bash $SCRIPT_NAME"
@@ -122,7 +105,6 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 if [[ -r /etc/os-release ]]; then
-    # shellcheck disable=SC1091
     . /etc/os-release
     if [[ ${ID:-} != ubuntu && ${ID_LIKE:-} != *ubuntu* ]]; then
         warn "This system reports ID=${ID:-unknown}, not Ubuntu."
@@ -163,8 +145,6 @@ if (( ! KEEP_APPORT )); then
     TELEMETRY_PACKAGES+=("${APPORT_PACKAGES[@]}")
 fi
 
-# ── Step 1: Stop and disable the services ────────────────────────────────────
-
 info "Stopping and disabling telemetry services..."
 for unit in "${TELEMETRY_UNITS[@]}"; do
     systemctl list-unit-files --no-legend --no-pager "$unit" >/dev/null 2>&1 || continue
@@ -176,10 +156,6 @@ for unit in "${TELEMETRY_UNITS[@]}"; do
     run systemctl mask "$unit"    >/dev/null 2>&1 || true
 done
 success "Telemetry services stopped, disabled and masked."
-
-# ── Step 2: Remove the packages ──────────────────────────────────────────────
-# Removed one at a time: a single apt-get call fails outright if any name is
-# unknown on this release, which would leave the rest installed.
 
 info "Purging telemetry packages..."
 removed_any=0
@@ -203,12 +179,8 @@ else
     info "None of the telemetry packages were installed."
 fi
 
-# ── Step 3: Pin the packages so apt will not bring them back ─────────────────
-
 info "Writing the apt pin..."
 
-# Older versions of this script wrote one file per package. Clean those up so
-# there is a single source of truth.
 for stale in no-ubuntu-report.pref no-whoopsie.pref no-apport.pref; do
     [[ -e /etc/apt/preferences.d/$stale ]] && run rm -f "/etc/apt/preferences.d/$stale"
 done
@@ -224,11 +196,6 @@ done
 } | write_file /etc/apt/preferences.d/no-ubuntu-telemetry.pref 0644
 
 success "Pin written to /etc/apt/preferences.d/no-ubuntu-telemetry.pref"
-
-# ── Step 4: Write the disable flags ──────────────────────────────────────────
-# These matter if a package survives removal, or is reinstalled later after
-# the pin is lifted. They are written directly rather than deleted first, so
-# a failure part-way through cannot leave telemetry re-enabled.
 
 info "Writing disable flags..."
 
@@ -252,8 +219,6 @@ success "Disable flags written."
 
 warn "These files are dpkg conffiles. If you ever reinstall the packages,"
 warn "apt will prompt about the modified versions; keep yours."
-
-# ── Step 5: Cleanup ──────────────────────────────────────────────────────────
 
 info "Running apt cleanup..."
 run apt-get autoremove -y
